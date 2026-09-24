@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AegisSOC - Security Log Analyser & SIEM Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f3ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                            950: '#0f172a',
+                        },
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+        /* Custom scrollbars */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="h-full flex flex-col overflow-hidden bg-slate-950 text-slate-200">
+
+    <!-- Top Navigation Header -->
+    <header class="h-16 border-b border-slate-800 bg-slate-900/80 backdrop-blur shrink-0 flex items-center justify-between px-6 z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-bold text-xl">
+                <i class="fa-solid font-bold fa-shield-halved"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    AEGIS <span class="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">SOC SIEM v2.4</span>
+                </h1>
+                <p class="text-xs text-slate-400">Security Log Analyser & Suspicious Activity Detector</p>
+            </div>
+        </div>
+
+        <!-- Global Quick Controls -->
+        <div class="flex items-center gap-3">
+            <button id="btn-load-sample" class="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition flex items-center gap-2 shadow-lg shadow-indigo-600/20">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                <span>Generate Sample Logs</span>
+            </button>
+            <label for="csv-file-input" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition cursor-pointer flex items-center gap-2">
+                <i class="fa-solid fa-file-csv text-emerald-400"></i>
+                <span>Upload CSV Log</span>
+                <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+            </label>
+            <button id="btn-export-logs" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 text-xs font-medium transition flex items-center gap-1.5">
+                <i class="fa-solid fa-download"></i> Export
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="flex-1 flex overflow-hidden">
+
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 border-r border-slate-800 bg-slate-900/50 shrink-0 flex flex-col justify-between p-4 hidden md:flex">
+            <div class="space-y-6">
+                <div>
+                    <div class="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 mb-2">Navigation</div>
+                    <nav class="space-y-1">
+                        <button data-tab="dashboard" class="nav-btn active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-indigo-400 bg-indigo-500/10 border border-indigo-500/20">
+                            <i class="fa-solid fa-chart-pie w-5 text-center"></i>
+                            <span>SOC Dashboard</span>
+                        </button>
+                        <button data-tab="alerts" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                            <div class="flex items-center gap-3">
+                                <i class="fa-solid fa-triangle-exclamation w-5 text-center"></i>
+                                <span>Alert Center</span>
+                            </div>
+                            <span id="badge-total-alerts" class="px-2 py-0.5 rounded-full text-xs bg-rose-500/20 text-rose-400 font-bold border border-rose-500/30">0</span>
+                        </button>
+                        <button data-tab="logs" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                            <i class="fa-solid fa-list-ul w-5 text-center"></i>
+                            <span>Log Explorer</span>
+                        </button>
+                        <button data-tab="rules" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition text-slate-400 hover:text-slate-200 hover:bg-slate-800/60">
+                            <i class="fa-solid fa-gears w-5 text-center"></i>
+                            <span>Detection Rules</span>
+                        </button>
+                    </nav>
+                </div>
+
+                <div>
+                    <div class="text-[10px] font-bold tracking-wider text-slate-500 uppercase px-3 mb-2">Log Summary</div>
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-2 text-xs">
+                        <div class="flex justify-between text-slate-400">
+                            <span>Loaded Logs:</span>
+                            <span id="stat-sidebar-count" class="font-mono text-slate-200 font-semibold">0</span>
+                        </div>
+                        <div class="flex justify-between text-slate-400">
+                            <span>Time Range:</span>
+                            <span id="stat-sidebar-range" class="font-mono text-slate-200 text-[10px]">N/A</span>
+                        </div>
+                        <div class="flex justify-between text-slate-400">
+                            <span>Last Analyzed:</span>
+                            <span id="stat-sidebar-updated" class="font-mono text-emerald-400">Never</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Analyst Info / Status -->
+            <div class="p-3 bg-slate-900/80 border border-slate-800 rounded-xl flex items-center gap-3">
+                <div class="relative">
+                    <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center font-bold text-xs text-indigo-300">
+                        AN
+                    </div>
+                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 absolute bottom-0 right-0 ring-2 ring-slate-900"></div>
+                </div>
+                <div class="overflow-hidden">
+                    <div class="text-xs font-semibold text-slate-200 truncate">SecOps Analyst</div>
+                    <div class="text-[10px] text-slate-400 truncate">Tier 1 Incident Responder</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 overflow-y-auto bg-slate-950 p-4 md:p-6 space-y-6">
+
+            <!-- Global Filter Bar (Applies to Dashboard, Alerts, Logs) -->
+            <section class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-xl backdrop-blur">
+                <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                    <div class="flex items-center gap-2 text-slate-300 font-semibold text-sm">
+                        <i class="fa-solid fa-filter text-indigo-400"></i>
+                        <span>Log Investigation Filters</span>
+                    </div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1 lg:max-w-4xl">
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Username Search</label>
+                            <input type="text" id="filter-user" placeholder="e.g. j.doe, admin" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">IP Address</label>
+                            <input type="text" id="filter-ip" placeholder="e.g. 192.168..." class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Status Filter</label>
+                            <select id="filter-status" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="ALL">All Logins (Success & Fail)</option>
+                                <option value="SUCCESS">Success Only</option>
+                                <option value="FAILURE">Failure Only</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase font-bold text-slate-400 mb-1">Alert Status</label>
+                            <select id="filter-alert-status" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+                                <option value="ALL">All Statuses</option>
+                                <option value="New">New Alerts</option>
+                                <option value="Investigating">Investigating</option>
+                                <option value="Resolved">Resolved</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-end gap-2 shrink-0">
+                        <button id="btn-reset-filters" class="px-3 py-1.5 text-xs rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 transition">
+                            <i class="fa-solid fa-rotate-left mr-1"></i> Reset
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 1: SOC DASHBOARD -->
+            <div id="tab-dashboard" class="tab-content space-y-6">
+
+                <!-- KPI Cards Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Total Login Attempts</span>
+                            <i class="fa-solid fa-list-check text-indigo-400"></i>
+                        </div>
+                        <div class="mt-2 flex items-baseline justify-between">
+                            <span id="kpi-total-logins" class="text-2xl font-bold font-mono text-white">0</span>
+                            <span class="text-[10px] text-slate-400">Records</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Failed Login Ratio</span>
+                            <i class="fa-solid fa-user-xmark text-rose-400"></i>
+                        </div>
+                        <div class="mt-2 flex items-baseline justify-between">
+                            <span id="kpi-failure-rate" class="text-2xl font-bold font-mono text-rose-400">0%</span>
+                            <span id="kpi-failed-count" class="text-[10px] text-slate-400">0 fails</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Active Security Threats</span>
+                            <i class="fa-solid fa-triangle-exclamation text-amber-400"></i>
+                        </div>
+                        <div class="mt-2 flex items-baseline justify-between">
+                            <span id="kpi-active-alerts" class="text-2xl font-bold font-mono text-amber-400">0</span>
+                            <span class="text-[10px] text-slate-400">Unresolved</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Top Targeted User</span>
+                            <i class="fa-solid fa-user-shield text-sky-400"></i>
+                        </div>
+                        <div class="mt-2">
+                            <div id="kpi-top-target" class="text-base font-bold text-slate-100 truncate">None</div>
+                            <span id="kpi-top-target-count" class="text-[10px] text-slate-400">0 failed attempts</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                        <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
+                            <span>Top Suspicious IP</span>
+                            <i class="fa-solid fa-network-wired text-purple-400"></i>
+                        </div>
+                        <div class="mt-2">
+                            <div id="kpi-top-ip" class="text-base font-bold font-mono text-purple-300 truncate">None</div>
+                            <span id="kpi-top-ip-count" class="text-[10px] text-slate-400">0 attempts</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Grid Row 1 -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Main Timeline Chart -->
+                    <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-line text-indigo-400"></i>
+                                Login Attempts Timeline (Success vs Failure)
+                            </h3>
+                            <span class="text-[11px] text-slate-500">Aggregated by Time Window</span>
+                        </div>
+                        <div class="h-64 relative">
+                            <canvas id="chart-timeline"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Severity Distribution -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-pie text-rose-400"></i>
+                                Alert Severity Breakdown
+                            </h3>
+                        </div>
+                        <div class="h-64 relative flex items-center justify-center">
+                            <canvas id="chart-severity"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Grid Row 2 -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Top Targeted Accounts Bar Chart -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-users-slash text-amber-400"></i>
+                                Top Targeted Users (Failed Logins)
+                            </h3>
+                        </div>
+                        <div class="h-60 relative">
+                            <canvas id="chart-users"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Top Source IPs Bar Chart -->
+                    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                <i class="fa-solid fa-globe text-cyan-400"></i>
+                                Top Source IP Addresses
+                            </h3>
+                        </div>
+                        <div class="h-60 relative">
+                            <canvas id="chart-ips"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: ALERT CENTER -->
+            <div id="tab-alerts" class="tab-content space-y-6 hidden">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-bell text-rose-400"></i> Security Alerts & Anomalies
+                        </h2>
+                        <p class="text-xs text-slate-400">Review, triage, and update investigation statuses for detected security events.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="cnt-new-badge" class="px-3 py-1 rounded-lg text-xs bg-rose-500/10 text-rose-400 border border-rose-500/20 font-medium">New: 0</span>
+                        <span id="cnt-investigating-badge" class="px-3 py-1 rounded-lg text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">Investigating: 0</span>
+                        <span id="cnt-resolved-badge" class="px-3 py-1 rounded-lg text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">Resolved: 0</span>
+                    </div>
+                </div>
+
+                <!-- Alerts Table -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
+                                <tr>
+                                    <th class="p-3.5">Alert ID / Rule</th>
+                                    <th class="p-3.5">Severity</th>
+                                    <th class="p-3.5">Target Account</th>
+                                    <th class="p-3.5">Source IP</th>
+                                    <th class="p-3.5">Time Detected</th>
+                                    <th class="p-3.5">Details</th>
+                                    <th class="p-3.5">Status & Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alerts-table-body" class="divide-y divide-slate-800/60 font-mono">
+                                <!-- Dynamic alert rows populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div id="alerts-empty-state" class="hidden p-12 text-center text-slate-500">
+                        <i class="fa-solid fa-shield-check text-4xl mb-3 text-emerald-500/40"></i>
+                        <p class="text-sm font-medium">No alerts matched your current filter criteria.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: LOG EXPLORER -->
+            <div id="tab-logs" class="tab-content space-y-6 hidden">
+                <div class="flex justify-between items-center bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100 flex items-center gap-2">
+                            <i class="fa-solid fa-database text-indigo-400"></i> Raw Authentication Logs
+                        </h2>
+                        <p class="text-xs text-slate-400">Searchable list of all ingested authentication events.</p>
+                    </div>
+                    <div class="text-xs text-slate-400">
+                        Showing <span id="log-count-visible" class="text-slate-100 font-bold">0</span> entries
+                    </div>
+                </div>
+
+                <!-- Log Table -->
+                <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs text-slate-300">
+                            <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px]">
+                                <tr>
+                                    <th class="p-3.5">Timestamp</th>
+                                    <th class="p-3.5">Username</th>
+                                    <th class="p-3.5">IP Address</th>
+                                    <th class="p-3.5">Status</th>
+                                    <th class="p-3.5">Location</th>
+                                    <th class="p-3.5">Device / Client</th>
+                                    <th class="p-3.5">Flags</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body" class="divide-y divide-slate-800/60 font-mono">
+                                <!-- Dynamic log rows populated via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: DETECTION RULES -->
+            <div id="tab-rules" class="tab-content space-y-6 hidden">
+                <div class="bg-slate-900 border border-slate-800 p-6 rounded-2xl space-y-4">
+                    <h2 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+                        <i class="fa-solid fa-code text-emerald-400"></i> Active Security Detection Rules Logic
+                    </h2>
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        The SIEM engine dynamically correlates login telemetry using window-based temporal analysis. Below are the rules running in python/JS logic equivalent to SQL window functions:
+                    </p>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <!-- Rule 1 -->
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">HIGH SEVERITY</span>
+                                <span class="text-xs font-mono text-slate-500">RULE_01</span>
+                            </div>
+                            <h3 class="text-sm font-bold text-slate-200">Repeated Failed Logins (Brute Force)</h3>
+                            <p class="text-xs text-slate-400">Triggers when 5 or more consecutive/cumulative failed logins occur for a single user account within a 10-minute sliding window.</p>
+                            <pre class="bg-slate-900 p-2.5 rounded text-[11px] text-indigo-300 font-mono overflow-x-auto border border-slate-800">
+# SQLite Window Logic
+SELECT username, COUNT(*) 
+FROM logs 
+WHERE status='Failure' 
+GROUP BY username, strftime('%Y-%m-%d %H:%M', timestamp)
+HAVING COUNT(*) >= 5;</pre>
+                        </div>
+
+                        <!-- Rule 2 -->
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">CRITICAL SEVERITY</span>
+                                <span class="text-xs font-mono text-slate-500">RULE_02</span>
+                            </div>
+                            <h3 class="text-sm font-bold text-slate-200">Successful Login After Repeated Failures</h3>
+                            <p class="text-xs text-slate-400">Highlights potential account compromise or password guessing where a successful login occurs within 15 mins following 3+ failed attempts.</p>
+                            <pre class="bg-slate-900 p-2.5 rounded text-[11px] text-emerald-300 font-mono overflow-x-auto border border-slate-800">
+# Account Takeover Rule
+failures = count_failures(user, last_15_mins)
+if failures >= 3 and current_status == "Success":
+    trigger_alert("Potential Account Compromise")</pre>
+                        </div>
+
+                        <!-- Rule 3 -->
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">MEDIUM SEVERITY</span>
+                                <span class="text-xs font-mono text-slate-500">RULE_03</span>
+                            </div>
+                            <h3 class="text-sm font-bold text-slate-200">Password Spraying (Multi-Account IP)</h3>
+                            <p class="text-xs text-slate-400">Flags a single IP address attempting logins across 3 or more distinct usernames within a 10-minute timeframe.</p>
+                            <pre class="bg-slate-900 p-2.5 rounded text-[11px] text-amber-300 font-mono overflow-x-auto border border-slate-800">
+# IP Multi-Target Spray Rule
+unique_users = count_distinct_users(ip, window='10m')
+if unique_users >= 3:
+    trigger_alert("Password Spray Attack Detected")</pre>
+                        </div>
+
+                        <!-- Rule 4 -->
+                        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">LOW SEVERITY</span>
+                                <span class="text-xs font-mono text-slate-500">RULE_04</span>
+                            </div>
+                            <h3 class="text-sm font-bold text-slate-200">Out-of-Hours / Geolocation Anomaly</h3>
+                            <p class="text-xs text-slate-400">Highlights logins from non-standard locations or during atypical off-hours (e.g. 01:00 - 05:00 UTC) for manual review.</p>
+                            <pre class="bg-slate-900 p-2.5 rounded text-[11px] text-sky-300 font-mono overflow-x-auto border border-slate-800">
+# Anomaly heuristic
+if log.hour in [1,2,3,4] or log.country in SUSPICIOUS_LIST:
+    flag_anomaly("Atypical Login Context")</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Investigation Modal -->
+    <div id="investigate-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <!-- Modal Header -->
+            <div class="p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950">
+                <div class="flex items-center gap-3">
+                    <div id="modal-severity-badge" class="px-2.5 py-1 rounded text-xs font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                        HIGH SEVERITY
+                    </div>
+                    <h3 id="modal-title" class="text-base font-bold text-slate-100">Alert Investigation</h3>
+                </div>
+                <button id="btn-close-modal" class="text-slate-400 hover:text-slate-100 p-1">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content -->
+            <div class="p-6 overflow-y-auto space-y-6 flex-1 text-xs text-slate-300">
+                <!-- Summary Meta -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold">Target User</span>
+                        <div id="modal-user" class="text-sm font-bold text-slate-200 mt-0.5">j.doe</div>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold">Source IP</span>
+                        <div id="modal-ip" class="text-sm font-bold font-mono text-indigo-400 mt-0.5">192.168.1.1</div>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold">Detection Window</span>
+                        <div id="modal-window" class="text-[11px] font-mono text-slate-300 mt-0.5">10 Mins</div>
+                    </div>
+                    <div>
+                        <span class="text-[10px] text-slate-500 uppercase font-bold">Event Count</span>
+                        <div id="modal-count" class="text-sm font-bold text-rose-400 mt-0.5">6 attempts</div>
+                    </div>
+                </div>
+
+                <!-- Incident Context / Explanation -->
+                <div class="bg-indigo-950/30 border border-indigo-500/20 p-4 rounded-xl text-slate-300 space-y-1">
+                    <span class="font-bold text-indigo-400 flex items-center gap-2">
+                        <i class="fa-solid fa-lightbulb"></i> Analyst Rule Context
+                    </span>
+                    <p id="modal-description" class="text-xs text-slate-300 leading-relaxed">
+                        Explanation details go here...
+                    </p>
+                </div>
+
+                <!-- Historical Timeline Leading Up to Alert -->
+                <div>
+                    <h4 class="text-xs font-bold text-slate-400 uppercase mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-slate-500"></i> Event Timeline Correlated with Target
+                    </h4>
+                    <div id="modal-timeline-container" class="space-y-2 border-l-2 border-slate-800 pl-4 ml-2">
+                        <!-- Dynamic timeline items -->
+                    </div>
+                </div>
+
+                <!-- Analyst Notes Section -->
+                <div class="space-y-2 border-t border-slate-800 pt-4">
+                    <label class="block text-xs font-bold text-slate-300">Analyst Investigation Notes & Case Comments</label>
+                    <textarea id="modal-notes-input" rows="3" class="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 font-mono" placeholder="Document findings, mitigation steps, or false-positive details..."></textarea>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 border-t border-slate-800 bg-slate-950 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs text-slate-400">Update Status:</span>
+                    <select id="modal-status-select" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200">
+                        <option value="New">New</option>
+                        <option value="Investigating">Investigating</option>
+                        <option value="Resolved">Resolved</option>
+                    </select>
+                </div>
+                <button id="btn-save-investigation" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-xl text-xs transition shadow-lg shadow-indigo-600/20">
+                    Save Case Updates
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * AEGIS SIEM - Core Detection & Dashboard Logic
+         */
+
+        // State Management
+        let rawLogs = [];
+        let filteredLogs = [];
+        let detectedAlerts = [];
+        let activeTab = 'dashboard';
+        let currentInvestigatingAlertId = null;
+
+        // Chart References
+        let timelineChart = null;
+        let severityChart = null;
+        let usersChart = null;
+        let ipsChart = null;
+
+        // --- 1. SAMPLE DATA GENERATOR ---
+        function generateSampleLogs() {
+            const users = ['admin', 'j.doe', 'm.smith', 'a.taylor', 'dev_service', 'c.wilson', 'e.brown'];
+            const ips = ['192.168.1.105', '10.0.4.12', '185.220.101.5', '45.33.32.156', '192.168.1.45', '198.51.100.22'];
+            const countries = ['USA', 'UK', 'Germany', 'Russia', 'China', 'Brazil', 'Canada'];
+            const devices = ['Chrome / Windows', 'Firefox / Linux', 'Safari / macOS', 'Python-requests', 'Edge / Windows'];
+
+            const logs = [];
+            const now = new Date();
+
+            // Helper to subtract minutes
+            const ago = (mins) => new Date(now.getTime() - mins * 60000).toISOString().replace('T', ' ').substring(0, 19);
+
+            // 1. Normal Baseline User Activity
+            for (let i = 0; i < 120; i++) {
+                const randomUser = users[Math.floor(Math.random() * users.length)];
+                const isSuccess = Math.random() > 0.15; // 85% success rate normally
+                logs.push({
+                    timestamp: ago(Math.floor(Math.random() * 4320)), // Last 3 days
+                    username: randomUser,
+                    ip: ips[0],
+                    status: isSuccess ? 'Success' : 'Failure',
+                    country: 'USA',
+                    device: 'Chrome / Windows'
+                });
+            }
+
+            // 2. Scenario A: Brute Force Attack on 'admin' (Rule 1 Trigger)
+            const bruteTime = 45; // 45 mins ago
+            for (let i = 0; i < 8; i++) {
+                logs.push({
+                    timestamp: ago(bruteTime - i * 0.8), // 8 failures within 6 mins
+                    username: 'admin',
+                    ip: '185.220.101.5', // Malicious TOR Exit IP
+                    status: 'Failure',
+                    country: 'Russia',
+                    device: 'Python-requests'
+                });
+            }
+
+            // 3. Scenario B: Successful Login After Multiple Failures on 'j.doe' (Rule 2 Trigger - Account Takeover)
+            const takeoverTime = 120; // 2 hours ago
+            for (let i = 0; i < 4; i++) {
+                logs.push({
+                    timestamp: ago(takeoverTime - i),
+                    username: 'j.doe',
+                    ip: '45.33.32.156',
+                    status: 'Failure',
+                    country: 'China',
+                    device: 'Firefox / Linux'
+                });
+            }
+            // Followed by success!
+            logs.push({
+                timestamp: ago(takeoverTime - 5),
+                username: 'j.doe',
+                ip: '45.33.32.156',
+                status: 'Success',
+                country: 'China',
+                device: 'Firefox / Linux'
+            });
+
+            // 4. Scenario C: Password Spraying Attack (Rule 3 Trigger)
+            const sprayTime = 200;
+            const sprayTargets = ['m.smith', 'a.taylor', 'dev_service', 'c.wilson'];
+            sprayTargets.forEach((u, index) => {
+                logs.push({
+                    timestamp: ago(sprayTime - index * 1.5), // 4 different users in 6 mins from same IP
+                    username: u,
+                    ip: '198.51.100.22',
+                    status: 'Failure',
+                    country: 'Brazil',
+                    device: 'CustomScript/1.0'
+                });
+            });
+
+            // Sort logs chronologically
+            logs.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            return logs;
+        }
+
+        // --- 2. SIEM DETECTION ENGINE ---
+        function runDetectionEngine(logs) {
+            const alerts = [];
+            let alertIdCounter = 1001;
+
+            // RULE 1: Repeated Failed Logins (Brute Force - 5+ fails in 10 mins)
+            const failuresByUser = {};
+            logs.filter(l => l.status === 'Failure').forEach(log => {
+                if (!failuresByUser[log.username]) failuresByUser[log.username] = [];
+                failuresByUser[log.username].push(log);
+            });
+
+            Object.keys(failuresByUser).forEach(user => {
+                const userFails = failuresByUser[user];
+                for (let i = 0; i < userFails.length; i++) {
+                    const currentLog = userFails[i];
+                    const currentTime = new Date(currentLog.timestamp).getTime();
+                    
+                    // Count failures within 10 minutes prior
+                    const windowFails = userFails.filter(f => {
+                        const t = new Date(f.timestamp).getTime();
+                        return t <= currentTime && (currentTime - t) <= 10 * 60 * 1000;
+                    });
+
+                    if (windowFails.length >= 5) {
+                        // Avoid duplicate alert for same window
+                        const existing = alerts.find(a => a.ruleId === 'RULE_01' && a.username === user && (currentTime - new Date(a.lastTimestamp).getTime()) < 10 * 60 * 1000);
+                        if (!existing) {
+                            alerts.push({
+                                id: `ALT-${alertIdCounter++}`,
+                                ruleId: 'RULE_01',
+                                ruleName: 'Brute Force Attempt',
+                                severity: 'High',
+                                username: user,
+                                ip: currentLog.ip,
+                                firstTimestamp: windowFails[0].timestamp,
+                                lastTimestamp: currentLog.timestamp,
+                                count: windowFails.length,
+                                status: 'New',
+                                description: `Detected ${windowFails.length} failed login attempts for account '${user}' within a 10-minute window. High likelihood of automated credential guessing.`,
+                                notes: ''
+                            });
+                        }
+                    }
+                }
+            });
+
+            // RULE 2: Successful Login After Multiple Failures (Account Takeover)
+            logs.forEach((log, index) => {
+                if (log.status === 'Success') {
+                    const successTime = new Date(log.timestamp).getTime();
+                    // Check previous 15 mins for failures
+                    const recentFailures = logs.filter(l => {
+                        const t = new Date(l.timestamp).getTime();
+                        return l.username === log.username && 
+                               l.status === 'Failure' && 
+                               t < successTime && 
+                               (successTime - t) <= 15 * 60 * 1000;
+                    });
+
+                    if (recentFailures.length >= 3) {
+                        alerts.push({
+                            id: `ALT-${alertIdCounter++}`,
+                            ruleId: 'RULE_02',
+                            ruleName: 'Potential Account Compromise',
+                            severity: 'Critical',
+                            username: log.username,
+                            ip: log.ip,
+                            firstTimestamp: recentFailures[0].timestamp,
+                            lastTimestamp: log.timestamp,
+                            count: recentFailures.length + 1,
+                            status: 'New',
+                            description: `Successful login recorded for '${log.username}' immediately following ${recentFailures.length} failed login attempts within 15 minutes. High suspicion of account breach.`,
+                            notes: ''
+                        });
+                    }
+                }
+            });
+
+            // RULE 3: Password Spraying (Single IP attempting logins on >3 users in 10 mins)
+            const logsByIP = {};
+            logs.forEach(log => {
+                if (!logsByIP[log.ip]) logsByIP[log.ip] = [];
+                logsByIP[log.ip].push(log);
+            });
+
+            Object.keys(logsByIP).forEach(ip => {
+                const ipLogs = logsByIP[ip];
+                for (let i = 0; i < ipLogs.length; i++) {
+                    const currentLog = ipLogs[i];
+                    const currentTime = new Date(currentLog.timestamp).getTime();
+
+                    const windowLogs = ipLogs.filter(l => {
+                        const t = new Date(l.timestamp).getTime();
+                        return t <= currentTime && (currentTime - t) <= 10 * 60 * 1000;
+                    });
+
+                    const distinctUsers = new Set(windowLogs.map(l => l.username));
+                    if (distinctUsers.size >= 3) {
+                        const existing = alerts.find(a => a.ruleId === 'RULE_03' && a.ip === ip);
+                        if (!existing) {
+                            alerts.push({
+                                id: `ALT-${alertIdCounter++}`,
+                                ruleId: 'RULE_03',
+                                ruleName: 'Password Spraying Attack',
+                                severity: 'Medium',
+                                username: Array.from(distinctUsers).join(', '),
+                                ip: ip,
+                                firstTimestamp: windowLogs[0].timestamp,
+                                lastTimestamp: currentLog.timestamp,
+                                count: windowLogs.length,
+                                status: 'New',
+                                description: `Source IP ${ip} targeted ${distinctUsers.size} distinct user accounts (${Array.from(distinctUsers).join(', ')}) within a 10-minute window.`,
+                                notes: ''
+                            });
+                        }
+                    }
+                }
+            });
+
+            return alerts;
+        }
+
+        // --- 3. FILTERING & DATA PROCESSING ---
+        function applyGlobalFilters() {
+            const userQuery = document.getElementById('filter-user').value.toLowerCase().trim();
+            const ipQuery = document.getElementById('filter-ip').value.toLowerCase().trim();
+            const statusFilter = document.getElementById('filter-status').value;
+            const alertStatusFilter = document.getElementById('filter-alert-status').value;
+
+            filteredLogs = rawLogs.filter(log => {
+                const matchUser = !userQuery || log.username.toLowerCase().includes(userQuery);
+                const matchIP = !ipQuery || log.ip.toLowerCase().includes(ipQuery);
+                const matchStatus = statusFilter === 'ALL' || log.status.toUpperCase() === statusFilter;
+                return matchUser && matchIP && matchStatus;
+            });
+
+            updateDashboardUI();
+            renderLogsTable();
+            renderAlertsTable(alertStatusFilter);
+        }
+
+        // --- 4. DASHBOARD & CHARTS UI UPDATES ---
+        function updateDashboardUI() {
+            // KPI Calculations
+            const total = filteredLogs.length;
+            const failedCount = filteredLogs.filter(l => l.status === 'Failure').length;
+            const failureRatio = total > 0 ? ((failedCount / total) * 100).toFixed(1) : 0;
+
+            const unresolvedAlerts = detectedAlerts.filter(a => a.status !== 'Resolved').length;
+
+            // Compute Top Targeted User
+            const userFailCounts = {};
+            filteredLogs.filter(l => l.status === 'Failure').forEach(l => {
+                userFailCounts[l.username] = (userFailCounts[l.username] || 0) + 1;
+            });
+            let topUser = 'None';
+            let topUserCount = 0;
+            Object.entries(userFailCounts).forEach(([u, c]) => {
+                if (c > topUserCount) { topUser = u; topUserCount = c; }
+            });
+
+            // Compute Top IP
+            const ipCounts = {};
+            filteredLogs.forEach(l => {
+                ipCounts[l.ip] = (ipCounts[l.ip] || 0) + 1;
+            });
+            let topIP = 'None';
+            let topIPCount = 0;
+            Object.entries(ipCounts).forEach(([ip, c]) => {
+                if (c > topIPCount) { topIP = ip; topIPCount = c; }
+            });
+
+            // Update UI Counters
+            document.getElementById('kpi-total-logins').textContent = total.toLocaleString();
+            document.getElementById('kpi-failure-rate').textContent = `${failureRatio}%`;
+            document.getElementById('kpi-failed-count').textContent = `${failedCount} failed`;
+            document.getElementById('kpi-active-alerts').textContent = unresolvedAlerts;
+            document.getElementById('kpi-top-target').textContent = topUser;
+            document.getElementById('kpi-top-target-count').textContent = `${topUserCount} failed logins`;
+            document.getElementById('kpi-top-ip').textContent = topIP;
+            document.getElementById('kpi-top-ip-count').textContent = `${topIPCount} attempts`;
+
+            // Sidebar stats
+            document.getElementById('stat-sidebar-count').textContent = rawLogs.length;
+            if (rawLogs.length > 0) {
+                document.getElementById('stat-sidebar-range').textContent = `${rawLogs[0].timestamp.substring(5,10)} to ${rawLogs[rawLogs.length-1].timestamp.substring(5,10)}`;
+                document.getElementById('stat-sidebar-updated').textContent = new Date().toLocaleTimeString();
+            }
+
+            // Refresh Charts
+            renderCharts(filteredLogs, userFailCounts, ipCounts);
+        }
+
+        // --- 5. CHART JS INITIALIZATION & UPDATES ---
+        function renderCharts(logs, userFailCounts, ipCounts) {
+            // Chart 1: Timeline (Aggregate by Date/Hour)
+            const timelineMap = {};
+            logs.forEach(l => {
+                const hourKey = l.timestamp.substring(0, 13) + ':00';
+                if (!timelineMap[hourKey]) timelineMap[hourKey] = { success: 0, failure: 0 };
+                if (l.status === 'Success') timelineMap[hourKey].success++;
+                else timelineMap[hourKey].failure++;
+            });
+
+            const labels = Object.keys(timelineMap).sort();
+            const successData = labels.map(k => timelineMap[k].success);
+            const failureData = labels.map(k => timelineMap[k].failure);
+
+            if (timelineChart) timelineChart.destroy();
+            timelineChart = new Chart(document.getElementById('chart-timeline'), {
+                type: 'line',
+                data: {
+                    labels: labels.map(l => l.substring(5, 16)),
+                    datasets: [
+                        { label: 'Success', data: successData, borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: true, tension: 0.3 },
+                        { label: 'Failure', data: failureData, borderColor: '#ef4444', backgroundColor: 'rgba(239, 68, 68, 0.15)', fill: true, tension: 0.3 }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+                    scales: {
+                        x: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } },
+                        y: { ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+
+            // Chart 2: Severity Breakdown
+            const sevCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
+            detectedAlerts.forEach(a => { sevCounts[a.severity] = (sevCounts[a.severity] || 0) + 1; });
+
+            if (severityChart) severityChart.destroy();
+            severityChart = new Chart(document.getElementById('chart-severity'), {
+                type: 'doughnut',
+                data: {
+                    labels: ['Critical', 'High', 'Medium', 'Low'],
+                    datasets: [{
+                        data: [sevCounts.Critical, sevCounts.High, sevCounts.Medium, sevCounts.Low],
+                        backgroundColor: ['#dc2626', '#f97316', '#f59e0b', '#38bdf8'],
+                        borderWidth: 2,
+                        borderColor: '#0f172a'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', font: { size: 11 } } } }
+                }
+            });
+
+            // Chart 3: Top Targeted Users
+            const sortedUsers = Object.entries(userFailCounts).sort((a,b) => b[1] - a[1]).slice(0, 5);
+            if (usersChart) usersChart.destroy();
+            usersChart = new Chart(document.getElementById('chart-users'), {
+                type: 'bar',
+                data: {
+                    labels: sortedUsers.map(u => u[0]),
+                    datasets: [{ label: 'Failed Attempts', data: sortedUsers.map(u => u[1]), backgroundColor: '#6366f1', borderRadius: 6 }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+
+            // Chart 4: Top Source IPs
+            const sortedIPs = Object.entries(ipCounts).sort((a,b) => b[1] - a[1]).slice(0, 5);
+            if (ipsChart) ipsChart.destroy();
+            ipsChart = new Chart(document.getElementById('chart-ips'), {
+                type: 'bar',
+                data: {
+                    labels: sortedIPs.map(ip => ip[0]),
+                    datasets: [{ label: 'Total Logins', data: sortedIPs.map(ip => ip[1]), backgroundColor: '#8b5cf6', borderRadius: 6 }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: '#94a3b8' }, grid: { display: false } },
+                        y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } }
+                    }
+                }
+            });
+        }
+
+        // --- 6. TABLE RENDERING FUNCTIONS ---
+        function renderLogsTable() {
+            const tbody = document.getElementById('logs-table-body');
+            tbody.innerHTML = '';
+
+            document.getElementById('log-count-visible').textContent = filteredLogs.length;
+
+            filteredLogs.slice(0, 100).forEach(log => { // Render first 100 for performance
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/40 transition';
+
+                const statusBadge = log.status === 'Success'
+                    ? `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold"><i class="fa-solid fa-check mr-1"></i>Success</span>`
+                    : `<span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/20 font-semibold"><i class="fa-solid fa-xmark mr-1"></i>Failure</span>`;
+
+                tr.innerHTML = `
+                    <td class="p-3.5 text-slate-400">${log.timestamp}</td>
+                    <td class="p-3.5 font-bold text-slate-200">${log.username}</td>
+                    <td class="p-3.5 text-indigo-400">${log.ip}</td>
+                    <td class="p-3.5">${statusBadge}</td>
+                    <td class="p-3.5 text-slate-400">${log.country || 'USA'}</td>
+                    <td class="p-3.5 text-slate-400 text-[11px] truncate max-w-[150px]">${log.device || 'Browser'}</td>
+                    <td class="p-3.5">
+                        ${log.status === 'Failure' ? '<span class="text-[10px] text-amber-400"><i class="fa-solid fa-triangle-exclamation"></i> Suspicious</span>' : '-'}
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function renderAlertsTable(alertStatusFilter = 'ALL') {
+            const tbody = document.getElementById('alerts-table-body');
+            tbody.innerHTML = '';
+
+            // Update Header Counts
+            const newCnt = detectedAlerts.filter(a => a.status === 'New').length;
+            const invCnt = detectedAlerts.filter(a => a.status === 'Investigating').length;
+            const resCnt = detectedAlerts.filter(a => a.status === 'Resolved').length;
+
+            document.getElementById('cnt-new-badge').textContent = `New: ${newCnt}`;
+            document.getElementById('cnt-investigating-badge').textContent = `Investigating: ${invCnt}`;
+            document.getElementById('cnt-resolved-badge').textContent = `Resolved: ${resCnt}`;
+            document.getElementById('badge-total-alerts').textContent = newCnt + invCnt;
+
+            const displayAlerts = alertStatusFilter === 'ALL'
+                ? detectedAlerts
+                : detectedAlerts.filter(a => a.status === alertStatusFilter);
+
+            const emptyState = document.getElementById('alerts-empty-state');
+            if (displayAlerts.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            displayAlerts.forEach(alert => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-slate-800/40 transition';
+
+                const sevBadge = {
+                    Critical: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600/20 text-rose-400 border border-rose-500/30">CRITICAL</span>',
+                    High: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">HIGH</span>',
+                    Medium: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">MEDIUM</span>',
+                    Low: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">LOW</span>'
+                }[alert.severity];
+
+                const statusBadge = {
+                    New: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20"><i class="fa-solid fa-circle text-[6px] mr-1"></i>New</span>',
+                    Investigating: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20"><i class="fa-solid fa-spinner animate-spin text-[8px] mr-1"></i>Investigating</span>',
+                    Resolved: '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-check text-[8px] mr-1"></i>Resolved</span>'
+                }[alert.status];
+
+                tr.innerHTML = `
+                    <td class="p-3.5">
+                        <div class="font-bold text-slate-100">${alert.id}</div>
+                        <div class="text-[10px] text-slate-400">${alert.ruleName}</div>
+                    </td>
+                    <td class="p-3.5">${sevBadge}</td>
+                    <td class="p-3.5 font-bold text-slate-200">${alert.username}</td>
+                    <td class="p-3.5 text-indigo-400">${alert.ip}</td>
+                    <td class="p-3.5 text-slate-400">${alert.lastTimestamp}</td>
+                    <td class="p-3.5 text-slate-400 max-w-xs truncate">${alert.description}</td>
+                    <td class="p-3.5 flex items-center gap-2">
+                        ${statusBadge}
+                        <button onclick="openInvestigationModal('${alert.id}')" class="px-2.5 py-1 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 rounded border border-indigo-500/30 transition text-[11px] font-sans">
+                            Investigate
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- 7. INVESTIGATION MODAL & CASE MANAGEMENT ---
+        function openInvestigationModal(alertId) {
+            const alert = detectedAlerts.find(a => a.id === alertId);
+            if (!alert) return;
+
+            currentInvestigatingAlertId = alertId;
+
+            document.getElementById('modal-title').textContent = `${alert.id}: ${alert.ruleName}`;
+            document.getElementById('modal-severity-badge').textContent = `${alert.severity} SEVERITY`;
+            document.getElementById('modal-user').textContent = alert.username;
+            document.getElementById('modal-ip').textContent = alert.ip;
+            document.getElementById('modal-window').textContent = `${alert.firstTimestamp.substring(11,16)} - ${alert.lastTimestamp.substring(11,16)}`;
+            document.getElementById('modal-count').textContent = `${alert.count} attempts`;
+            document.getElementById('modal-description').textContent = alert.description;
+            document.getElementById('modal-notes-input').value = alert.notes || '';
+            document.getElementById('modal-status-select').value = alert.status;
+
+            // Render Timeline Correlated to Target User
+            const timelineContainer = document.getElementById('modal-timeline-container');
+            timelineContainer.innerHTML = '';
+
+            const relatedLogs = rawLogs.filter(l => l.username.includes(alert.username) || l.ip === alert.ip).slice(-10);
+
+            relatedLogs.forEach(log => {
+                const item = document.createElement('div');
+                item.className = 'relative pl-3 py-1';
+                item.innerHTML = `
+                    <div class="text-[10px] text-slate-500 font-mono">${log.timestamp}</div>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="font-bold text-slate-200">${log.username}</span>
+                        <span class="text-indigo-400 font-mono">(${log.ip})</span>
+                        ${log.status === 'Success' 
+                            ? '<span class="text-[10px] text-emerald-400 font-bold">SUCCESS</span>' 
+                            : '<span class="text-[10px] text-rose-400 font-bold">FAILED</span>'}
+                    </div>
+                `;
+                timelineContainer.appendChild(item);
+            });
+
+            document.getElementById('investigate-modal').classList.remove('hidden');
+        }
+
+        // --- 8. CSV PARSER & EVENT LISTENERS ---
+        function initApp() {
+            // Tab Switching
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const targetTab = btn.getAttribute('data-tab');
+                    document.querySelectorAll('.nav-btn').forEach(b => {
+                        b.classList.remove('active', 'text-indigo-400', 'bg-indigo-500/10', 'border', 'border-indigo-500/20');
+                        b.classList.add('text-slate-400');
+                    });
+                    btn.classList.add('active', 'text-indigo-400', 'bg-indigo-500/10', 'border', 'border-indigo-500/20');
+
+                    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.add('hidden'));
+                    document.getElementById(`tab-${targetTab}`).classList.remove('hidden');
+                });
+            });
+
+            // CSV Upload Listener
+            document.getElementById('csv-file-input').addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: function(results) {
+                        if (results.data && results.data.length > 0) {
+                            rawLogs = results.data.map(row => ({
+                                timestamp: row.timestamp || row.Timestamp || new Date().toISOString(),
+                                username: row.username || row.Username || 'unknown',
+                                ip: row.ip || row.IP || row.ip_address || '0.0.0.0',
+                                status: (row.status || row.Status || 'Failure').toLowerCase().includes('succ') ? 'Success' : 'Failure',
+                                country: row.country || row.location || 'Unknown',
+                                device: row.device || row.user_agent || 'Client App'
+                            }));
+
+                            detectedAlerts = runDetectionEngine(rawLogs);
+                            applyGlobalFilters();
+                        }
+                    }
+                });
+            });
+
+            // Sample Log Loading Button
+            document.getElementById('btn-load-sample').addEventListener('click', () => {
+                rawLogs = generateSampleLogs();
+                detectedAlerts = runDetectionEngine(rawLogs);
+                applyGlobalFilters();
+            });
+
+            // Filters Reset
+            document.getElementById('btn-reset-filters').addEventListener('click', () => {
+                document.getElementById('filter-user').value = '';
+                document.getElementById('filter-ip').value = '';
+                document.getElementById('filter-status').value = 'ALL';
+                document.getElementById('filter-alert-status').value = 'ALL';
+                applyGlobalFilters();
+            });
+
+            // Filter Inputs Live Change
+            ['filter-user', 'filter-ip', 'filter-status', 'filter-alert-status'].forEach(id => {
+                document.getElementById(id).addEventListener('input', applyGlobalFilters);
+                document.getElementById(id).addEventListener('change', applyGlobalFilters);
+            });
+
+            // Modal Controls
+            document.getElementById('btn-close-modal').addEventListener('click', () => {
+                document.getElementById('investigate-modal').classList.add('hidden');
+            });
+
+            document.getElementById('btn-save-investigation').addEventListener('click', () => {
+                if (!currentInvestigatingAlertId) return;
+                const alert = detectedAlerts.find(a => a.id === currentInvestigatingAlertId);
+                if (alert) {
+                    alert.notes = document.getElementById('modal-notes-input').value;
+                    alert.status = document.getElementById('modal-status-select').value;
+                    renderAlertsTable(document.getElementById('filter-alert-status').value);
+                    updateDashboardUI();
+                }
+                document.getElementById('investigate-modal').classList.add('hidden');
+            });
+
+            // Export Logs Button
+            document.getElementById('btn-export-logs').addEventListener('click', () => {
+                const csv = Papa.unparse(filteredLogs);
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.setAttribute('download', `aegis_secops_logs_${new Date().toISOString().substring(0,10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            });
+
+            // Default Load
+            rawLogs = generateSampleLogs();
+            detectedAlerts = runDetectionEngine(rawLogs);
+            applyGlobalFilters();
+        }
+
+        // Initialize on Window Load
+        window.onload = initApp;
+    </script>
+</body>
+</html>
